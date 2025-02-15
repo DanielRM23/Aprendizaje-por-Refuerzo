@@ -1,15 +1,11 @@
 import numpy as np 
 import random 
+from time import sleep
 
 
 #Define los estados SS como todas las configuraciones válidas del tablero.
 
 class TicTacToe: 
-    # def __init__(self, tamanio = 3):
-    #     # Inicialización del tablero con dimensiones: tamanio x tamanio 
-    #     self.tamanio = tamanio # dimension
-    #     self.matriz = np.zeros((tamano, tamano), dtype=int)  # matriz de ceros representa el tablero vacío
-
 
     def crear_tablero(self, tamanio):
         tablero = np.zeros((tamanio, tamanio), dtype=int)  
@@ -80,9 +76,46 @@ class TicTacToe:
                 break
         return win
 
+    # Evaluates whether there is
+    # a winner or a tie
+    
+    
+    def evaluate(self, tablero):
+        winner = 0
+
+        for self.jugador in [1, 2]:
+            if (self.row_win(self.tablero, self.jugador) or
+                    self.col_win(self.tablero, self.jugador) or
+                    self.diag_win(self.tablero, self.jugador)):
+
+                winner = self.jugador
+
+        if np.all(tablero != 0) and winner == 0:
+            winner = -1
+        return winner
+
+    def play_game(self):
+        self.tablero, winner, counter = self.crear_tablero(3), 0, 1
+        print("Tablero inicial")
+        print(self.tablero)
+        sleep(2)
+    
+        while winner == 0:
+            for self.jugador in [1, 2]:
+                self.tablero = self.random_place(self.tablero, self.jugador)
+                print("\n Tablero después de " + str(counter) + " movimiento")
+                print(self.tablero)
+                sleep(2)
+                counter += 1
+                winner = self.evaluate(self.tablero)
+                if winner != 0:
+                    break
+        return(winner)
 
 game = TicTacToe()
 tablero = game.crear_tablero(3)
 
-print(game.posibilidades(tablero))
-print(game.random_place(tablero, 1))
+# print(game.posibilidades(tablero))
+# print(game.random_place(tablero, 1))
+
+print("El ganador es: " + str(game.play_game()))
