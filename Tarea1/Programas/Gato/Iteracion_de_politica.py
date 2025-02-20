@@ -1,7 +1,5 @@
-import numpy as np 
-import random  
-
-    # --------------------------- Evaluación de política ---------------------------
+import numpy as np
+import random
 
 class TicTacToeAI:
     def __init__(self, juego):
@@ -36,8 +34,8 @@ class TicTacToeAI:
     def evaluar_politica(self, gamma=0.9, theta=1e-6):
         """
         Evalúa la política actual calculando los valores de los estados.
-        - gamma: Factor de descuento (por defecto 0.9).
-        - theta: Umbral de convergencia (por defecto 1e-6).
+        - gamma: Factor de descuento.
+        - theta: Umbral de convergencia.
         """
         while True:  # Bucle infinito hasta que se alcance la convergencia.
             delta = 0  # Inicializa la diferencia máxima entre iteraciones.
@@ -93,7 +91,7 @@ class TicTacToeAI:
                     elif recompensa == -1:
                         recompensa = 0
                     else:
-                        recompensa = 0
+                        recompensa <= 0
 
                     # Calcula el valor esperado:
                     valor = recompensa + gamma * self.estados_valores.get(nuevo_estado, 0)
@@ -121,6 +119,82 @@ class TicTacToeAI:
             politica_estable = self.mejorar_politica(gamma)  # Mejora la política.
             if politica_estable:  # Si la política es estable:
                 break  # Termina el bucle.
+
+    def iteracion_por_valor(self, gamma=0.9, theta=1e-6):
+        """
+        Realiza la iteración por valor para calcular los valores óptimos de los estados.
+        - gamma: Factor de descuento (por defecto 0.9).
+        - theta: Umbral de convergencia (por defecto 1e-6).
+        """
+        self.inicializar_valores_estado()  # Inicializa los valores de los estados a cero.
+        while True:
+            delta = 0  # Inicializa la diferencia máxima entre iteraciones.
+            for estado in self.estados_valores:  # Recorre cada estado.
+                v = self.estados_valores[estado]  # Valor actual del estado.
+                mejor_valor = -float('inf')  # Inicializa el mejor valor con un número muy pequeño.
+
+                # Busca la mejor acción para el estado actual:
+                for accion in self.juego.posibilidades(np.array(estado)):  # Recorre las acciones posibles.
+                    nuevo_tablero = self.juego.aplicar_accion(np.array(estado), accion, 1)  # Aplica la acción.
+                    nuevo_estado = self.juego.obtener_estado(nuevo_tablero)  # Obtiene el nuevo estado.
+                    recompensa = self.juego.es_terminal(nuevo_tablero)  # Calcula la recompensa.
+
+                    # Define la recompensa según el resultado del juego:
+                    if recompensa == 1:
+                        recompensa = 1  # El agente gana.
+                    elif recompensa == 2:
+                        recompensa = -1  # El oponente gana.
+                    elif recompensa == -1:
+                        recompensa = 0  # Empate.
+                    else:
+                        recompensa = 0  # Juego en progreso.
+
+                    # Calcula el valor esperado:
+                    valor = recompensa + gamma * self.estados_valores.get(nuevo_estado, 0)
+                    if valor > mejor_valor:  # Si el valor es mejor que el actual:
+                        mejor_valor = valor  # Actualiza el mejor valor.
+
+                # Actualiza el valor del estado:
+                self.estados_valores[estado] = mejor_valor
+                delta = max(delta, abs(v - mejor_valor))  # Actualiza la diferencia máxima.
+
+            # Si la diferencia entre iteraciones es menor que theta, se detiene:
+            if delta < theta:
+                break
+
+    def derivar_politica(self, gamma=0.9):
+        """
+        Deriva la política óptima a partir de los valores óptimos de los estados.
+        - gamma: Factor de descuento (por defecto 0.9).
+        """
+        for estado in self.estados_valores:  # Recorre cada estado.
+            mejor_accion = None  # Inicializa la mejor acción.
+            mejor_valor = -float('inf')  # Inicializa el mejor valor con un número muy pequeño.
+
+            # Busca la mejor acción para el estado actual:
+            for accion in self.juego.posibilidades(np.array(estado)):  # Recorre las acciones posibles.
+                nuevo_tablero = self.juego.aplicar_accion(np.array(estado), accion, 1)  # Aplica la acción.
+                nuevo_estado = self.juego.obtener_estado(nuevo_tablero)  # Obtiene el nuevo estado.
+                recompensa = self.juego.es_terminal(nuevo_tablero)  # Calcula la recompensa.
+
+                # Define la recompensa según el resultado del juego:
+                if recompensa == 1:
+                    recompensa = 1
+                elif recompensa == 2:
+                    recompensa = -1
+                elif recompensa == -1:
+                    recompensa = 0
+                else:
+                    recompensa = 0
+
+                # Calcula el valor esperado:
+                valor = recompensa + gamma * self.estados_valores.get(nuevo_estado, 0)
+                if valor > mejor_valor:  # Si el valor es mejor que el actual:
+                    mejor_valor = valor  # Actualiza el mejor valor.
+                    mejor_accion = accion  # Actualiza la mejor acción.
+
+            # Asigna la mejor acción a la política:
+            self.politica[estado] = mejor_accion
 
     def jugar_con_politica(self):
         """
