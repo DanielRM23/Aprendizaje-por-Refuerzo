@@ -226,3 +226,196 @@ for episodio in range(5):
 
 
 
+import torch
+
+
+def actualizar_q_values(red_principal, red_objetivo, buffer_replay, optimizador, funcion_perdida, dispositivo, gamma=0.99, batch_size=32):
+    """
+    Actualiza la red principal utilizando DDQN.
+    """
+    if len(buffer_replay) < batch_size:
+        return  # Esperar más experiencias
+
+    batch = buffer_replay.obtener_muestra(batch_size)
+
+    # 🔹 Filtrar estados None antes de procesarlos
+    batch = [exp for exp in batch if exp[0] is not None and exp[3] is not None]
+
+    # Si después de filtrar hay menos datos de los necesarios, no actualizar
+    if len(batch) < batch_size:
+        return  
+
+    estados, acciones, recompensas, nuevos_estados, terminados = zip(*batch)
+
+    # 🔹 Revisar que no haya `None` en los estados antes de transformarlos en tensores
+    assert all(s is not None for s in estados), "Hay un estado None en el batch"
+    assert all(s is not None for s in nuevos_estados), "Hay un nuevo_estado None en el batch"
+
+    estados = torch.tensor(np.stack(estados, axis=0), dtype=torch.float32, device=dispositivo)
+    nuevos_estados = torch.tensor(np.stack(nuevos_estados, axis=0), dtype=torch.float32, device=dispositivo)
+
+    acciones = torch.tensor(acciones, dtype=torch.int64, device=dispositivo).unsqueeze(1)
+    recompensas = torch.tensor(recompensas, dtype=torch.float32, device=dispositivo).unsqueeze(1)
+    terminados = torch.tensor(terminados, dtype=torch.float32, device=dispositivo).unsqueeze(1)
+
+    # 🔹 Calcular los valores Q actuales
+    valores_q_actuales = red_principal(estados).gather(1, acciones)
+
+    with torch.no_grad():
+        mejores_acciones = red_principal(nuevos_estados).argmax(dim=1, keepdim=True)
+        valores_q_futuros = red_objetivo(nuevos_estados).gather(1, mejores_acciones)
+        q_objetivo = recompensas + gamma * valores_q_futuros * (1 - terminados)
+
+    # 🔹 Calcular pérdida y actualizar pesos
+    perdida = funcion_perdida(valores_q_actuales, q_objetivo)
+    optimizador.zero_grad()
+    perdida.backward()
+    optimizador.step()
+
+
+
+
+import time
+
+# 🔹 Parámetros de entrenamiento
+num_episodios = 500  # Número total de episodios de entrenamiento
+gamma = 0.99  # Factor de descuento para recompensas futuras
+batch_size = 32  # Tamaño del lote para entrenar la red
+actualizar_red_objetivo_cada = 1000  # Cada cuántos pasos copiamos `red_principal` → `red_objetivo`
+
+# 🔹 Inicializar la política ε-greedy
+politica = PoliticaEpsilonGreedy(num_acciones=num_acciones_posibles)
+
+# 🔹 Contador de pasos totales
+pasos_totales = 0
+
+
+import time
+
+# 🔹 Parámetros de entrenamiento
+num_episodios = 500  # Número total de episodios de entrenamiento
+gamma = 0.99  # Factor de descuento para recompensas futuras
+batch_size = 32  # Tamaño del lote para entrenar la red
+actualizar_red_objetivo_cada = 1000  # Cada cuántos pasos copiamos `red_principal` → `red_objetivo`
+
+# 🔹 Inicializar la política ε-greedy
+politica = PoliticaEpsilonGreedy(num_acciones=num_acciones_posibles)
+
+# 🔹 Contador de pasos totales
+pasos_totales = 0
+
+# 🔹 Ciclo de entrenamiento
+for episodio in range(1, num_episodios + 1):
+    # 🔹 Reiniciar el entorno correctamente
+    entorno_juego.reset()  # Resetear el entorno sin asignarlo a una variable
+    estado_actual = entorno_juego.state()  # Obtener el estado real después del reset
+
+    # 🔹 Verificar si `estado_actual` es None y reintentar si es necesario
+    intentos_reset = 0
+    while estado_actual is None and intentos_reset < 10:  # Limitar intentos para evitar bucles infinitos
+        print(f"⚠️ Advertencia: `state()` devolvió None después de reset(). Intento {intentos_reset+1}/10...")
+        entorno_juego.reset()
+        estado_actual = entorno_juego.state()
+        intentos_reset += 1
+
+    if estado_actual is None:
+        print("❌ Error crítico: No se pudo obtener un estado válido después de 10 intentos. Abortando episodio.")
+        continue  # Saltar al siguiente episodio
+
+    recompensa_total = 0  # Acumular la recompensa total del episodio
+    terminado = False
+
+    while not terminado:
+        # 🔹 Asegurar que `estado_actual` no sea None antes de seleccionar la acción
+        if estado_actual is None:
+            print("⚠️ Advertencia: `estado_actual` es None dentro del episodio. Saliendo del loop...")
+            break  # Salir del episodio si el estado es inválido
+
+        # 🔹 Seleccionar acción con ε-greedy
+        accion = politica.seleccionar_accion(estado_actual, red_principal, dispositivo)
+
+        # 🔹 Ejecutar la acción en el entorno
+        recompensa, terminado = entorno_juego.act(accion)
+        nuevo_estado = entorno_juego.state()
+
+        # 🔹 Filtrar estados `None` antes de agregar al buffer
+        if estado_actual is not None and nuevo_estado is not None:
+            buffer_replay.agregar(estado_actual, accion, recompensa, nuevo_estado, terminado)
+
+        # 🔹 Actualizar la red neuronal si hay suficientes datos
+        actualizar_q_values(red_principal, red_objetivo, buffer_replay, optimizador, funcion_perdida, dispositivo, gamma, batch_size)
+
+        # 🔹 Mover al nuevo estado
+        estado_actual = nuevo_estado
+        recompensa_total += recompensa
+        pasos_totales += 1
+
+        # 🔹 Actualizar la red objetivo cada `actualizar_red_objetivo_cada` pasos
+        if pasos_totales % actualizar_red_objetivo_cada == 0:
+            red_objetivo.load_state_dict(red_principal.state_dict())
+
+    # 🔹 Reducir ε después de cada episodio
+    politica.actualizar_epsilon()
+
+    # 🔹 Imprimir estadísticas del episodio
+    print(f"Episodio {episodio}/{num_episodios} - Recompensa total: {recompensa_total:.2f} - ε: {politica.epsilon:.4f}")
+
+    # 🔹 Pequeña pausa para evitar sobrecargar la CPU/GPU
+    time.sleep(0.01)
+
+print("Entrenamiento completado 🎉")
+
+
+import matplotlib.pyplot as plt
+
+# 🔹 Lista para almacenar las recompensas de cada episodio
+recompensas_totales = []
+
+# 🔹 Ciclo de entrenamiento
+for episodio in range(1, num_episodios + 1):
+    entorno_juego.reset()
+    estado_actual = entorno_juego.state()
+    
+    intentos_reset = 0
+    while estado_actual is None and intentos_reset < 10:
+        estado_actual = entorno_juego.reset()
+        estado_actual = entorno_juego.state()
+        intentos_reset += 1
+
+    if estado_actual is None:
+        continue
+
+    recompensa_total = 0
+    terminado = False
+
+    while not terminado:
+        accion = politica.seleccionar_accion(estado_actual, red_principal, dispositivo)
+        recompensa, terminado = entorno_juego.act(accion)
+        nuevo_estado = entorno_juego.state()
+
+        if estado_actual is not None and nuevo_estado is not None:
+            buffer_replay.agregar(estado_actual, accion, recompensa, nuevo_estado, terminado)
+
+        actualizar_q_values(red_principal, red_objetivo, buffer_replay, optimizador, funcion_perdida, dispositivo, gamma, batch_size)
+
+        estado_actual = nuevo_estado
+        recompensa_total += recompensa
+        pasos_totales += 1
+
+        if pasos_totales % actualizar_red_objetivo_cada == 0:
+            red_objetivo.load_state_dict(red_principal.state_dict())
+
+    politica.actualizar_epsilon()
+    recompensas_totales.append(recompensa_total)
+
+    print(f"Episodio {episodio}/{num_episodios} - Recompensa total: {recompensa_total:.2f} - ε: {politica.epsilon:.4f}")
+
+    time.sleep(0.01)
+
+# 🔹 Graficar la recompensa total por episodio
+plt.plot(recompensas_totales)
+plt.xlabel("Episodio")
+plt.ylabel("Recompensa Total")
+plt.title("Desempeño del Agente (Recompensa por Episodio)")
+plt.show()
+
