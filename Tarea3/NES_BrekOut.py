@@ -1,66 +1,160 @@
-# 🔹 Importación de librerías
+# 🔹 Importación de librerías necesarias
 import numpy as np
 import random
 import torch
 import torch.nn as nn
-import torch.optim as optim
-from collections import deque
 from minatar import Environment
-
+import matplotlib.pyplot as plt
 
 # ===================================================================
 # 🔹 CONFIGURACIÓN DEL ENTORNO (MinAtar - Breakout)
 # ===================================================================
 
-entorno_juego = Environment("breakout")
-num_acciones_posibles = entorno_juego.num_actions()
-forma_estado_juego = entorno_juego.state_shape()
-dimension_estado = np.prod(forma_estado_juego)
+# Crear el entorno de Breakout usando MinAtar
+entorno = Environment("breakout")
 
-# 🔹 Imprimir información del entorno
-print(f"Número de acciones posibles: {num_acciones_posibles}")
-print(f"Forma del estado del juego: {forma_estado_juego}")
+# Obtener información clave del entorno
+num_acciones = entorno.num_actions()
+dim_forma_estado = entorno.state_shape()
+tamano_estado_flat = np.prod(dim_forma_estado)
 
-# 🔹 Obtener el estado inicial
-estado_actual = entorno_juego.state()
-print(f"Dimensión del estado inicial: {estado_actual.shape}")
+# Mostrar información del entorno
+print(f"Número de acciones posibles: {num_acciones}")
+print(f"Forma del estado del juego: {dim_forma_estado}")
+print(f"Dimensión del estado inicial: {entorno.state().shape}")
 
+# ===================================================================
+# 🔹 DEFINICIÓN DE LA RED DE POLÍTICA
+# ===================================================================
 
-
-import torch
-import torch.nn as nn
-
-# Definimos la clase de la red neuronal para la política
-class PolicyNetwork(nn.Module):
-    def __init__(self, input_dim, output_dim):
-        super().__init__()  # Llama al constructor de nn.Module
-
-        # Creamos un modelo secuencial con:
-        # - Una capa lineal que va de input_dim a 64 neuronas
-        # - Una función de activación ReLU
-        # - Otra capa lineal que va de 64 neuronas a output_dim (una por acción posible)
-        self.model = nn.Sequential(
-            nn.Linear(input_dim, 64),  # Capa densa de entrada
-            nn.ReLU(),                 # Activación no lineal
-            nn.Linear(64, output_dim)  # Capa de salida con tantas neuronas como acciones
+class PoliticaNES(nn.Module):
+    """
+    Red neuronal simple que actúa como política.
+    Entrada: estado aplanado
+    Salida: logits para cada acción posible
+    """
+    def __init__(self, dimension_entrada, num_acciones_salida):
+        super().__init__()
+        self.modelo = nn.Sequential(
+            nn.Linear(dimension_entrada, 64),
+            nn.ReLU(),
+            nn.Linear(64, num_acciones_salida)
         )
 
-    # Método que define cómo se pasa un input por la red
     def forward(self, x):
-        # Simplemente pasa el input a través del modelo secuencial
-        return self.model(x)
+        return self.modelo(x)
 
-    # Método para elegir una acción dado un estado
-    def act(self, state):
-        # Aplana el estado (por si viene en forma 2D o 3D)
-        # Lo convierte en tensor float32 y le agrega una dimensión para representar un batch (batch_size = 1)
-        state = torch.tensor(state.flatten(), dtype=torch.float32).unsqueeze(0)  # shape: (1, input_dim)
+    def seleccionar_accion(self, estado):
+        estado_tensor = torch.tensor(estado.flatten(), dtype=torch.float32).unsqueeze(0)
+        logits = self.forward(estado_tensor)
+        accion = torch.argmax(logits, dim=1).item()
+        return accion
 
-        # Obtiene los valores de salida (logits) para cada acción
-        logits = self.forward(state)
+# ===================================================================
+# 🔹 FUNCIONES DE UTILIDAD PARA NES
+# ===================================================================
 
-        # Toma la acción con el valor más alto (greedy)
-        action = torch.argmax(logits, dim=1).item()
+def obtener_parametros_flat(modelo):
+    """Devuelve todos los parámetros de la red como un solo vector plano."""
+    return torch.cat([p.data.view(-1) for p in modelo.parameters()])
 
-        # Devuelve la acción como un número entero
-        return action
+def asignar_parametros_flat(modelo, vector_parametros):
+    """Asigna un vector plano de parámetros a la red."""
+    indice = 0
+    for p in modelo.parameters():
+        cantidad_elementos = p.numel()
+        porcion = vector_parametros[indice:indice + cantidad_elementos]
+        p.data.copy_(porcion.view(p.size()))
+        indice += cantidad_elementos
+
+def evaluar_politica(env, politica, render=False):
+    """
+    Ejecuta un episodio completo usando una política dada.
+    Retorna la recompensa total acumulada.
+    """
+    env.reset()
+    recompensa_total = 0
+
+    # Acción inicial forzada: disparar (índice 5 en MinAtar Breakout)
+    recompensa, terminado = env.act(5)
+    recompensa_total += recompensa
+    estado = env.state()
+
+    # Ejecutar el episodio
+    while not terminado:
+        accion = politica.seleccionar_accion(estado)
+        recompensa, terminado = env.act(accion)
+        recompensa_total += recompensa
+        estado = env.state()
+
+        if render:
+            print(env.display())
+
+    return recompensa_total
+
+# ===================================================================
+# 🔹 ENTRENAMIENTO CON NES
+# ===================================================================
+
+# Hiperparámetros
+episodios_entrenamiento = 1000     # Cuántas iteraciones NES realizar
+num_perturbaciones = 100           # Cuántas muestras generar por episodio
+desviacion_ruido = 0.1             # Magnitud del ruido (σ)
+tasa_aprendizaje = 0.01            # Step size (α)
+
+# Inicializar la política
+politica = PoliticaNES(tamano_estado_flat, num_acciones)
+
+# Historial de recompensas para graficar
+recompensas_promedio_por_episodio = []
+
+# Bucle de entrenamiento NES
+for ep in range(episodios_entrenamiento):
+    # Obtener vector actual de parámetros θ
+    theta_actual = obtener_parametros_flat(politica)
+
+    # Generar perturbaciones y evaluar
+    lista_perturbaciones = []
+    lista_recompensas = []
+
+    for _ in range(num_perturbaciones):
+        ruido = torch.randn_like(theta_actual)
+        theta_alterado = theta_actual + desviacion_ruido * ruido
+        asignar_parametros_flat(politica, theta_alterado)
+
+        recompensa = evaluar_politica(entorno, politica)
+        lista_perturbaciones.append(ruido)
+        lista_recompensas.append(recompensa)
+
+    # Guardar recompensa promedio antes de normalizar
+    recompensa_promedio_cruda = sum(lista_recompensas) / num_perturbaciones
+    recompensas_promedio_por_episodio.append(recompensa_promedio_cruda)
+
+    # Normalizar recompensas para mejor estabilidad numérica
+    recompensas_tensor = torch.tensor(lista_recompensas, dtype=torch.float32)
+    recompensas_normalizadas = (recompensas_tensor - recompensas_tensor.mean()) / (recompensas_tensor.std() + 1e-8)
+
+    # Estimar el gradiente de la recompensa esperada
+    gradiente_estimado = torch.zeros_like(theta_actual)
+    for R, eps in zip(recompensas_normalizadas, lista_perturbaciones):
+        gradiente_estimado += R * eps
+    gradiente_estimado /= (num_perturbaciones * desviacion_ruido)
+
+    # Actualizar los parámetros en la dirección estimada
+    theta_actual += tasa_aprendizaje * gradiente_estimado
+    asignar_parametros_flat(politica, theta_actual)
+
+    print(f"Episodio {ep+1}/{episodios_entrenamiento} - Recompensa promedio: {recompensa_promedio_cruda:.2f}")
+
+# ===================================================================
+# 🔹 VISUALIZACIÓN DE RESULTADOS
+# ===================================================================
+
+plt.plot(recompensas_promedio_por_episodio)
+plt.xlabel("Episodio")
+plt.ylabel("Recompensa promedio")
+plt.title("Rendimiento de NES en Breakout")
+plt.grid()
+plt.show()
+
+
