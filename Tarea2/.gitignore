@@ -1,2 +1,27 @@
-Lecturas/
+# Ignorar todo por defecto
+*
+
+# Pero no ignores las carpetas necesarias para llegar a los .py
+!Tarea2_RojoMata_RL/
+!Tarea2_RojoMata_RL/Codigos/
+
+# No ignores los archivos .py dentro de Codigos
+!Tarea2_RojoMata_RL/Codigos/*.py
+
+# Ignorar otros tipos de archivos
+*.png
+*.jpg
+*.jpeg
+*.pdf
+*.zip
+
+# Ignorar todo dentro de Imagenes y Lecturas
 Imagenes/
+Lecturas/
+
+# Ignorar archivos temporales del sistema/editor
+__pycache__/
+*.pyc
+.DS_Store
+*.swp
+
