@@ -1,0 +1,6 @@
+# Ignorar notebooks temporales y carpetas no deseadas
+.ipynb_checkpoints/
+Lecturas/
+RL_tarea3/
+*.pdf
+
