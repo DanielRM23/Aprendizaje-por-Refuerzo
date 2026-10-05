@@ -17,3 +17,5 @@ Tarea5/pdfs/
 Proyecto/FinRL_repo/
 Proyecto/FinRL-Tutorials/
 Proyecto/*.zip
+.ipynb_checkpoints/
+Proyecto/results/
